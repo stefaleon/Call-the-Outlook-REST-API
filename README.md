@@ -83,3 +83,41 @@ public ActionResult Error(string message, string debug)
     return View("Error");
 }
 ```
+
+
+
+## Register the app
+
+! Important
+
+New app registrations should be created and managed in the new Application Registration Portal to be compatible with Outlook.com. 
+
+Account requirements
+
+In order to use the Application Registration Portal, you need either an Office 365 work or school account, or a Microsoft account. 
+
+REST API availability
+
+The REST API is currently enabled on all Office 365 accounts that have Exchange Online, and all Outlook.com accounts.
+
+
+Head over to the [Application Registration Portal](https://apps.dev.microsoft.com) to quickly get an application ID and secret.
+
+1. Using the Sign in link, sign in with either your Microsoft account (Outlook.com), or your work or school account (Office 365).
+
+2. Click the Add an app button. Enter `CallOutlookApi` for the name and click Create application.
+
+3. Locate the Application Secrets section, and click the Generate New Password button. Copy the password now and save it to a safe place. Once you've copied the password, click Ok.
+
+4. Locate the Platforms section, and click Add Platform. Choose Web, then enter `http://localhost:<PORT>`, replacing `<PORT>` with the port number your project is using under Redirect URLs.
+    
+    Tip
+
+    You can find the port number your project is using by selecting the project in Solution Explorer, then checking the value of URL under Development Server in the Properties window.
+
+5. Click Save to complete the registration. Copy the Application Id and save it along with the password you copied earlier. We'll need those values soon.
+
+
+
+
+
