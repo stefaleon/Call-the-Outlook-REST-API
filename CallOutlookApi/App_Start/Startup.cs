@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Configuration;
 using System.Threading.Tasks;
+using Microsoft.Identity.Client;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Owin;
@@ -78,11 +79,35 @@ namespace CallOutlookApi.App_Start
             return Task.FromResult(0);
         }
 
-        private Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification notification)
+        //private Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification notification)
+        //{
+        //    notification.HandleResponse();
+        //    notification.Response.Redirect("/Home/Error?message=See Auth Code Below&debug=" + notification.Code);
+        //    return Task.FromResult(0);
+        //}
+        // Note the function signature is changed!
+        private async Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification notification)
         {
+            ConfidentialClientApplication cca = new ConfidentialClientApplication(
+                appId, redirectUri, new ClientCredential(appPassword), null, null);
+
+            string message;
+            string debug;
+
+            try
+            {
+                var result = await cca.AcquireTokenByAuthorizationCodeAsync(notification.Code, scopes);
+                message = "See access token below";
+                debug = result.AccessToken;
+            }
+            catch (MsalException ex)
+            {
+                message = "AcquireTokenByAuthorizationCodeAsync threw an exception";
+                debug = ex.Message;
+            }
+
             notification.HandleResponse();
-            notification.Response.Redirect("/Home/Error?message=See Auth Code Below&debug=" + notification.Code);
-            return Task.FromResult(0);
+            notification.Response.Redirect("/Home/Error?message=" + message + "&debug=" + debug);
         }
     }
 }

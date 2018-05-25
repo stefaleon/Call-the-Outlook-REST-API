@@ -337,3 +337,48 @@ Save your work and run the app. Click on the button to sign in. After signing in
 
 
 
+## Exchanging the code for a token
+
+Now let's update the OnAuthorizationCodeReceived function to retrieve a token. In ./App_Start/Startup.cs, add the following line to the top of the file:
+
+C#
+
+```
+using Microsoft.Identity.Client;
+```
+
+Replace the current OnAuthorizationCodeReceived function with the following.
+
+Updated OnAuthorizationCodeReceived action in ./App_Start/Startup.cs
+
+C#
+
+```
+// Note the function signature is changed!
+private async Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification notification)
+{
+    ConfidentialClientApplication cca = new ConfidentialClientApplication(
+        appId, redirectUri, new ClientCredential(appPassword), null, null);
+
+    string message;
+    string debug;
+
+    try
+    {
+        var result = await cca.AcquireTokenByAuthorizationCodeAsync(notification.Code, scopes);
+        message = "See access token below";
+        debug = result.AccessToken;
+    }
+    catch (MsalException ex)
+    {
+        message = "AcquireTokenByAuthorizationCodeAsync threw an exception";
+        debug = ex.Message;
+    }
+
+    notification.HandleResponse();
+    notification.Response.Redirect("/Home/Error?message=" + message + "&debug=" + debug);
+}
+```
+
+Save your changes and restart the app. This time, after you sign in, you should see an access token displayed. 
+
