@@ -176,3 +176,164 @@ Powershell
 Install-Package Microsoft.Graph
 ```
 
+## Back to coding
+
+Now we're all set to do the sign in. Let's start by wiring the OWIN middleware to our app. Right-click the App_Start folder in Project Explorer and choose Add, then New Item. Choose the OWIN Startup Class template, name the file Startup.cs, and click Add. Replace the entire contents of this file with the following code.
+
+C#
+
+```
+using System;
+using System.Configuration;
+using System.IdentityModel.Claims;
+using System.IdentityModel.Tokens;
+using System.Threading.Tasks;
+using System.Web;
+
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.Owin;
+using Microsoft.Owin.Security;
+using Microsoft.Owin.Security.Cookies;
+using Microsoft.Owin.Security.Notifications;
+using Microsoft.Owin.Security.OpenIdConnect;
+
+using Owin;
+
+
+[assembly: OwinStartup(typeof(dotnet_tutorial.App_Start.Startup))]
+
+namespace dotnet_tutorial.App_Start
+{
+    public class Startup
+    {
+        public static string appId = ConfigurationManager.AppSettings["ida:AppId"];
+        public static string appPassword = ConfigurationManager.AppSettings["ida:AppPassword"];
+        public static string redirectUri = ConfigurationManager.AppSettings["ida:RedirectUri"];
+        public static string[] scopes = ConfigurationManager.AppSettings["ida:AppScopes"]
+          .Replace(' ', ',').Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+        public void Configuration(IAppBuilder app)
+        {
+            app.SetDefaultSignInAsAuthenticationType(CookieAuthenticationDefaults.AuthenticationType);
+
+            app.UseCookieAuthentication(new CookieAuthenticationOptions());
+
+            app.UseOpenIdConnectAuthentication(
+              new OpenIdConnectAuthenticationOptions
+              {
+                  ClientId = appId,
+                  Authority = "https://login.microsoftonline.com/common/v2.0",
+                  Scope = "openid offline_access profile email " + string.Join(" ", scopes),
+                  RedirectUri = redirectUri,
+                  PostLogoutRedirectUri = "/",
+                  TokenValidationParameters = new TokenValidationParameters
+                  {
+                      // For demo purposes only, see below
+                      ValidateIssuer = false
+
+                      // In a real multitenant app, you would add logic to determine whether the
+                      // issuer was from an authorized tenant
+                      //ValidateIssuer = true,
+                      //IssuerValidator = (issuer, token, tvp) =>
+                      //{
+                      //  if (MyCustomTenantValidation(issuer))
+                      //  {
+                      //    return issuer;
+                      //  }
+                      //  else
+                      //  {
+                      //    throw new SecurityTokenInvalidIssuerException("Invalid issuer");
+                      //  }
+                      //}
+                  },
+                  Notifications = new OpenIdConnectAuthenticationNotifications
+                  {
+                      AuthenticationFailed = OnAuthenticationFailed,
+                      AuthorizationCodeReceived = OnAuthorizationCodeReceived
+                  }
+              }
+            );
+        }
+
+        private Task OnAuthenticationFailed(AuthenticationFailedNotification<OpenIdConnectMessage,
+          OpenIdConnectAuthenticationOptions> notification)
+        {
+            notification.HandleResponse();
+            string redirect = "/Home/Error?message=" + notification.Exception.Message;
+            if (notification.ProtocolMessage != null && 
+                !string.IsNullOrEmpty(notification.ProtocolMessage.ErrorDescription))
+            {
+                redirect += "&debug=" + notification.ProtocolMessage.ErrorDescription;
+            }
+            notification.Response.Redirect(redirect);
+            return Task.FromResult(0);
+        }
+
+        private Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification notification)
+        {
+            notification.HandleResponse();
+            notification.Response
+                .Redirect("/Home/Error?message=See Auth Code Below&debug=" + notification.Code);
+            return Task.FromResult(0);
+        }
+    }
+}
+```
+
+Let's continue by adding a SignIn action to the HomeController class. Open the .\Controllers\HomeController.cs file. At the top of the file, add the following lines:
+
+C#
+
+```
+using System.Security.Claims;
+using System.Threading.Tasks;
+using Microsoft.Identity.Client;
+using Microsoft.Owin.Security;
+using Microsoft.Owin.Security.Cookies;
+using Microsoft.Owin.Security.OpenIdConnect;
+using Microsoft.Graph;
+```
+
+Now add a new method called SignIn to the HomeController class.
+
+SignIn action in ./Controllers/HomeController.cs
+
+C#
+
+```
+public void SignIn()
+{
+    if (!Request.IsAuthenticated)
+    {
+        // Signal OWIN to send an authorization request to Azure
+        HttpContext.GetOwinContext().Authentication.Challenge(
+            new AuthenticationProperties { RedirectUri = "/" },
+            OpenIdConnectAuthenticationDefaults.AuthenticationType);
+    }
+}
+```
+
+
+Finally, let's update the home page so that the login button invokes the SignIn action.
+
+Updated contents of the ./Views/Home/Index.cshtml file
+
+C#
+
+```
+@{
+    ViewBag.Title = "Home Page";
+}
+
+<div class="jumbotron">
+    <h1>ASP.NET MVC Tutorial</h1>
+    <p class="lead">This sample app uses the Mail API to read messages in your inbox.</p>
+    <p><a href="@Url.Action("SignIn", "Home", null, Request.Url.Scheme)" 
+        class="btn btn-primary btn-lg">Click here to login</a></p>
+</div>
+```
+
+Save your work and run the app. Click on the button to sign in. After signing in, you should be redirected to the error page, which displays an authorization code. Now let's do something with it.
+
+
+
