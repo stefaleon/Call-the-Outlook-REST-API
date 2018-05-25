@@ -382,3 +382,275 @@ private async Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotifica
 
 Save your changes and restart the app. This time, after you sign in, you should see an access token displayed. 
 
+
+Now that we can retrieve the access token, we need a way to save the token so the app can use it. The MSAL library defines a TokenCache interface, which we can use to store the tokens. Since this is a tutorial, we'll just implement a basic cache stored in the session.
+
+Create a new folder in the project called TokenStorage. Add a class in this folder named SessionTokenCache, and replace the contents of that file with the following code (borrowed from https://github.com/Azure-Samples/active-directory-dotnet-webapp-openidconnect-v2).
+
+
+Contents of the ./TokenCache/SessionTokenCache.cs file
+
+
+C#
+
+```
+using System.Threading;
+using System.Web;
+
+using Microsoft.Identity.Client;
+
+namespace dotnet_tutorial.TokenStorage
+{
+    // Adapted from https://github.com/Azure-Samples/active-directory-dotnet-webapp-openidconnect-v2
+    public class SessionTokenCache
+    {
+        private static ReaderWriterLockSlim sessionLock = 
+                                    new ReaderWriterLockSlim(LockRecursionPolicy.NoRecursion);
+        string userId = string.Empty;
+        string cacheId = string.Empty;
+        HttpContextBase httpContext = null;
+
+        TokenCache tokenCache = new TokenCache();
+
+        public SessionTokenCache(string userId, HttpContextBase httpContext)
+        {
+            this.userId = userId;
+            cacheId = userId + "_TokenCache";
+            this.httpContext = httpContext;
+            Load();
+        }
+
+        public TokenCache GetMsalCacheInstance()
+        {
+            tokenCache.SetBeforeAccess(BeforeAccessNotification);
+            tokenCache.SetAfterAccess(AfterAccessNotification);
+            Load();
+            return tokenCache;
+        }
+
+        public bool HasData()
+        {
+            return (httpContext.Session[cacheId] != null && 
+                                    ((byte[])httpContext.Session[cacheId]).Length > 0);
+        }
+
+        public void Clear()
+        {
+            httpContext.Session.Remove(cacheId);
+        }
+
+        private void Load()
+        {
+            sessionLock.EnterReadLock();
+            tokenCache.Deserialize((byte[])httpContext.Session[cacheId]);
+            sessionLock.ExitReadLock();
+        }
+
+        private void Persist()
+        {
+            sessionLock.EnterReadLock();
+
+            // Optimistically set HasStateChanged to false. 
+            // We need to do it early to avoid losing changes made by a concurrent thread.
+            tokenCache.HasStateChanged = false;
+
+            httpContext.Session[cacheId] = tokenCache.Serialize();
+            sessionLock.ExitReadLock();
+        }
+
+        // Triggered right before ADAL needs to access the cache. 
+        private void BeforeAccessNotification(TokenCacheNotificationArgs args)
+        {
+            // Reload the cache from the persistent store in case it changed since the last access. 
+            Load();
+        }
+
+        // Triggered right after ADAL accessed the cache.
+        private void AfterAccessNotification(TokenCacheNotificationArgs args)
+        {
+            // if the access operation resulted in a cache update
+            if (tokenCache.HasStateChanged)
+            {
+                Persist();
+            }
+        }
+    }
+}
+```
+
+
+
+Now let's update the OnAuthorizationCodeReceived function to use our new cache.
+
+Add the following lines to the top of the Startup.cs file:
+
+
+C#
+
+```
+using dotnet_tutorial.TokenStorage;
+```
+
+
+Replace the current OnAuthorizationCodeReceived function with this one.
+
+New OnAuthorizationCodeReceived in ./App_Start/Startup.cs
+
+C#
+
+```
+private async Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification notification)
+{
+    // Get the signed in user's id and create a token cache
+    string signedInUserId = 
+    notification.AuthenticationTicket.Identity.FindFirst(ClaimTypes.NameIdentifier).Value;
+    SessionTokenCache tokenCache = new SessionTokenCache(signedInUserId, 
+        notification.OwinContext.Environment["System.Web.HttpContextBase"] as HttpContextBase);
+
+    ConfidentialClientApplication cca = new ConfidentialClientApplication(
+        appId, redirectUri, new ClientCredential(appPassword), tokenCache.GetMsalCacheInstance(), null);
+
+    try
+    {
+        var result = await cca.AcquireTokenByAuthorizationCodeAsync(notification.Code, scopes);
+    }
+    catch (MsalException ex)
+    {
+        string message = "AcquireTokenByAuthorizationCodeAsync threw an exception";
+        string debug = ex.Message;
+        notification.HandleResponse();
+        notification.Response.Redirect("/Home/Error?message=" + message + "&debug=" + debug);
+    }
+}
+```
+
+Since we're saving stuff in the session, let's also add a SignOut action to the HomeController class. Add the following lines to the top of the HomeController.cs file:
+
+C#
+
+```
+using dotnet_tutorial.TokenStorage;
+```
+
+Then add the SignOut action.
+
+SignOut action in ./Controllers/HomeController.cs
+
+
+C#
+
+```
+public void SignOut()
+{
+    if (Request.IsAuthenticated)
+    {
+        string userId = ClaimsPrincipal.Current.FindFirst(ClaimTypes.NameIdentifier).Value;
+
+        if (!string.IsNullOrEmpty(userId))
+        {
+            // Get the user's token cache and clear it
+            SessionTokenCache tokenCache = new SessionTokenCache(userId, HttpContext);
+            tokenCache.Clear();
+        }
+    }
+    // Send an OpenID Connect sign-out request. 
+    HttpContext.GetOwinContext().Authentication.SignOut(
+        CookieAuthenticationDefaults.AuthenticationType);
+    Response.Redirect("/");
+}
+```
+
+Now if you restart the app and sign in, you'll notice that the app redirects back to the home page, with no visible result. Let's update the home page so that it changes based on if the user is signed in or not.
+
+First let's update the Index action in HomeController.cs to get the user's display name. Replace the existing Index function with the following code.
+
+
+Updated Index action in ./Controllers/HomeController.cs
+
+C#
+
+```
+public ActionResult Index()
+{
+    if (Request.IsAuthenticated)
+    {
+        string userName = ClaimsPrincipal.Current.FindFirst("name").Value;
+        string userId = ClaimsPrincipal.Current.FindFirst(ClaimTypes.NameIdentifier).Value;
+        if (string.IsNullOrEmpty(userName) || string.IsNullOrEmpty(userId))
+        {
+            // Invalid principal, sign out
+            return RedirectToAction("SignOut");
+        }
+
+        // Since we cache tokens in the session, if the server restarts
+        // but the browser still has a cached cookie, we may be
+        // authenticated but not have a valid token cache. Check for this
+        // and force signout.
+        SessionTokenCache tokenCache = new SessionTokenCache(userId, HttpContext);
+        if (!tokenCache.HasData())
+        {
+            // Cache is empty, sign out
+            return RedirectToAction("SignOut");
+        }
+
+        ViewBag.UserName = userName;
+    }
+    return View();
+}
+```
+
+Next, replace the existing Index.cshtml code with the following.
+
+Updated contents of ./Views/Home/Index.cshtml
+
+C#
+
+```
+@{
+    ViewBag.Title = "Home Page";
+}
+
+<div class="jumbotron">
+    <h1>ASP.NET MVC Tutorial</h1>
+    <p class="lead">This sample app uses the Mail API to read messages in your inbox.</p>
+    @if (Request.IsAuthenticated)
+    {
+        <p>Welcome, @(ViewBag.UserName)!</p>
+    }
+    else
+    {
+        <p><a href="@Url.Action("SignIn", "Home", null, Request.Url.Scheme)" 
+        class="btn btn-primary btn-lg">Click here to login</a></p>
+    }
+</div>
+```
+
+Finally, let's add some new menu items to the navigation bar if the user is signed in. Open the 
+./Views/Shared/_Layout.cshtml file. Locate the following lines of code:
+
+C#
+
+```
+<ul class="nav navbar-nav">
+    <li>@Html.ActionLink("Home", "Index", "Home")</li>
+    <li>@Html.ActionLink("About", "About", "Home")</li>
+    <li>@Html.ActionLink("Contact", "Contact", "Home")</li>
+</ul>
+```
+
+Replace those lines with this code:
+
+C#
+
+```
+<ul class="nav navbar-nav">
+    <li>@Html.ActionLink("Home", "Index", "Home")</li>
+    @if (Request.IsAuthenticated)
+    {
+        <li>@Html.ActionLink("Inbox", "Inbox", "Home")</li>
+        <li>@Html.ActionLink("Sign Out", "SignOut", "Home")</li>
+    }
+</ul>
+```
+
+Now if you save your changes and restart the app, the home page should display the logged on user's name and show two new menu items in the top navigation bar after you sign in. Now that we've got the signed in user and an access token, we're ready to call the Mail API.

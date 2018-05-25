@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Configuration;
+using System.IdentityModel.Claims;
 using System.Threading.Tasks;
+using System.Web;
+using CallOutlookApi.TokenStorage;
 using Microsoft.Identity.Client;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
@@ -79,35 +82,27 @@ namespace CallOutlookApi.App_Start
             return Task.FromResult(0);
         }
 
-        //private Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification notification)
-        //{
-        //    notification.HandleResponse();
-        //    notification.Response.Redirect("/Home/Error?message=See Auth Code Below&debug=" + notification.Code);
-        //    return Task.FromResult(0);
-        //}
-        // Note the function signature is changed!
         private async Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification notification)
         {
-            ConfidentialClientApplication cca = new ConfidentialClientApplication(
-                appId, redirectUri, new ClientCredential(appPassword), null, null);
+            // Get the signed in user's id and create a token cache
+            string signedInUserId = notification.AuthenticationTicket.Identity.FindFirst(ClaimTypes.NameIdentifier).Value;
+            SessionTokenCache tokenCache = new SessionTokenCache(signedInUserId,
+                notification.OwinContext.Environment["System.Web.HttpContextBase"] as HttpContextBase);
 
-            string message;
-            string debug;
+            ConfidentialClientApplication cca = new ConfidentialClientApplication(
+                appId, redirectUri, new ClientCredential(appPassword), tokenCache.GetMsalCacheInstance(), null);
 
             try
             {
                 var result = await cca.AcquireTokenByAuthorizationCodeAsync(notification.Code, scopes);
-                message = "See access token below";
-                debug = result.AccessToken;
             }
             catch (MsalException ex)
             {
-                message = "AcquireTokenByAuthorizationCodeAsync threw an exception";
-                debug = ex.Message;
+                string message = "AcquireTokenByAuthorizationCodeAsync threw an exception";
+                string debug = ex.Message;
+                notification.HandleResponse();
+                notification.Response.Redirect("/Home/Error?message=" + message + "&debug=" + debug);
             }
-
-            notification.HandleResponse();
-            notification.Response.Redirect("/Home/Error?message=" + message + "&debug=" + debug);
         }
     }
 }
