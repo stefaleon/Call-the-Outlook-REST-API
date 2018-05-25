@@ -119,5 +119,60 @@ Head over to the [Application Registration Portal](https://apps.dev.microsoft.co
 
 
 
+## Implementing OAuth2
 
+Our goal in this section is to make the link on our home page initiate the [OAuth2 Authorization Code Grant flow with Azure AD](https://msdn.microsoft.com/en-us/library/azure/dn645542.aspx). To make things easier, we'll use the [Microsoft Authentication Library (MSAL)](https://www.nuget.org/packages/Microsoft.Identity.Client) to handle our OAuth requests.
+
+First, let's create a separate config file to hold the OAuth settings for the app. Right-click the solution in Solution Explorer, choose Add, then New Item.... Select Web Configuration File, then enter AzureOauth.config in the Name field. Click Add.
+
+Open the AzureOauth.config file and replace its entire contents with the following.
+
+XML
+
+```
+<appSettings>
+    <add key="ida:AppID" value="YOUR APP ID" />
+    <add key="ida:AppPassword" value="YOUR APP PASSWORD" />
+    <add key="ida:RedirectUri" value="http://localhost:10800" />
+    <add key="ida:AppScopes" value="User.Read Mail.Read" />
+</appSettings>
+```
+Replace the value of the ida:AppID key with the application ID you generated above, and replace the value of the ida:AppPassword key with the password you generated above. If the value of your redirect URI is different, be sure to update the value of ida:RedirectUri.
+
+Now open the Web.config file. Find the line with the <appSettings> element, and change it to the following.
+
+XML
+
+```
+<appSettings file="AzureOauth.config">
+```
+
+This will cause ASP.NET to add the keys from the AzureOauth.config file at runtime. By keeping these values in a separate file, we make it less likely that we'll accidentally commit them to source control.
+
+The next step is to install the OWIN middleware, MSAL, and Graph libraries from NuGet. On the Visual Studio Tools menu, choose NuGet Package Manager, then Package Manager Console. To install the OWIN middleware libraries, enter the following commands in the Package Manager Console:
+
+Powershell
+
+```
+Install-Package Microsoft.Owin.Security.OpenIdConnect
+Install-Package Microsoft.Owin.Security.Cookies
+Install-Package Microsoft.Owin.Host.SystemWeb
+```
+
+Next install the Microsoft Authentication Library with the following command:
+
+Powershell
+
+```
+Install-Package Microsoft.Identity.Client -Pre
+```
+
+
+Finally install the Microsoft Graph Client Library with the following command:
+
+Powershell
+
+```
+Install-Package Microsoft.Graph
+```
 
