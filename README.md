@@ -654,3 +654,143 @@ C#
 ```
 
 Now if you save your changes and restart the app, the home page should display the logged on user's name and show two new menu items in the top navigation bar after you sign in. Now that we've got the signed in user and an access token, we're ready to call the Mail API.
+
+
+
+## Using the Mail API
+
+Let's start by adding a new function to the HomeController class to get the user's access token. In this function we'll use MSAL and our token cache. If there is a valid non-expired token in the cache, MSAL will return it. If it is expired, MSAL will refresh the token for us.
+
+Add the following using statements to ./Controllers/HomeController.cs.
+
+C#
+
+```
+using System.Configuration;
+using System.Net.Http.Headers;
+```
+
+GetAccessToken function in ./Controllers/HomeController.cs
+
+C#
+
+```
+public async Task<string> GetAccessToken()
+{
+    string accessToken = null;
+
+    // Load the app config from web.config
+    string appId = ConfigurationManager.AppSettings["ida:AppId"];
+    string appPassword = ConfigurationManager.AppSettings["ida:AppPassword"];
+    string redirectUri = ConfigurationManager.AppSettings["ida:RedirectUri"];
+    string[] scopes = ConfigurationManager.AppSettings["ida:AppScopes"]
+        .Replace(' ', ',').Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+
+    // Get the current user's ID
+    string userId = ClaimsPrincipal.Current.FindFirst(ClaimTypes.NameIdentifier).Value;
+
+    if (!string.IsNullOrEmpty(userId))
+    {
+        // Get the user's token cache
+        SessionTokenCache tokenCache = new SessionTokenCache(userId, HttpContext);
+
+        ConfidentialClientApplication cca = new ConfidentialClientApplication(
+            appId, redirectUri, new ClientCredential(appPassword), tokenCache.GetMsalCacheInstance(), null);
+
+        // Call AcquireTokenSilentAsync, which will return the cached
+        // access token if it has not expired. If it has expired, it will
+        // handle using the refresh token to get a new one.
+        AuthenticationResult result = await cca.AcquireTokenSilentAsync(scopes, cca.Users.First());
+
+        accessToken = result.AccessToken;
+    }
+
+    return accessToken;
+}
+```
+
+Now let's test our new function. Add a new function to the HomeController class called Inbox.
+
+
+Inbox action in ./Controllers/HomeController.cs
+
+C#
+
+```
+public async Task<ActionResult> Inbox()
+{
+    string token = await GetAccessToken();
+    if (string.IsNullOrEmpty(token))
+    {
+        // If there's no token in the session, redirect to Home
+        return Redirect("/");
+    }
+
+    return Content(string.Format("Token: {0}", token));
+}
+```
+
+If you run the app now and click the Inbox menu item after logging in, you should see the access token displayed in the browser. Let's put it to use.
+
+Update the Inbox function with the following code.
+
+Updated Inbox action in ./Controllers/HomeController.cs
+
+C#
+
+```
+public async Task<ActionResult> Inbox()
+{
+    string token = await GetAccessToken();
+    if (string.IsNullOrEmpty(token))
+    {
+        // If there's no token in the session, redirect to Home
+        return Redirect("/");
+    }
+
+    GraphServiceClient client = new GraphServiceClient(
+        new DelegateAuthenticationProvider(
+            (requestMessage) =>
+            {
+                requestMessage.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+
+                return Task.FromResult(0);
+            }));
+
+    try
+    {
+        var mailResults = await client.Me.MailFolders.Inbox.Messages.Request()
+                            .OrderBy("receivedDateTime DESC")
+                            .Select(m => new { m.Subject, m.ReceivedDateTime, m.From})
+                            .Top(10)
+                            .GetAsync();
+
+        string content = "";
+
+        foreach (var msg in mailResults.CurrentPage)
+        {
+            content += string.Format("Subject: {0}<br/>", msg.Subject);
+        }
+
+        return Content(content);
+    }
+    catch (ServiceException ex)
+    {
+        return RedirectToAction("Error", "Home",
+                 new { message = "ERROR retrieving messages", debug = ex.Message });
+    }
+}
+
+```
+
+To summarize the new code in the Inbox function:
+
+- It creates a GraphServiceClient object.
+- It modifies the outgoing request's headers in the DelegateAuthenticationProvider by adding the access token as an Authorization header.
+- It issues a GET request to the URL for inbox messages, with the following characteristics:
+- It uses the OrderBy() function with a value of receivedDateTime DESC to sort the results by ReceivedDateTime.
+- It uses the Select() function with a LINQ expression to limit the fields returned to only those that we need.
+- It loops over the results and prints out the subject.
+
+If you restart the app now, you should get a very basic listing of email subjects. However, we can use the features of MVC to do better than that.
