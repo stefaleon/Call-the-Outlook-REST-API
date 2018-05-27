@@ -1034,4 +1034,131 @@ public async Task<ActionResult> Calendar()
 }
 ```
 
-After logging into the app, click the Calendar item in the top navigation menu.
+5. After logging into the app, click the Calendar item in the top navigation menu.
+
+
+
+## For Contacts API:
+
+
+1. Update the ida:AppScopes value in AzureOauth.config to include the Contacts.Read scope.
+
+XML 
+
+```
+<add key="ida:AppScopes" value="User.Read Mail.Read Calendar.Read Contacts.Read" />
+```
+
+2. Add a view for events called Contacts that uses the Empty (without model) template. Add the following code to Contacts.cshtml:
+
+C#
+
+```
+@model IEnumerable<Microsoft.Graph.Contact>
+
+@{
+    ViewBag.Title = "Contacts";
+}
+
+<h2>Contacts</h2>
+
+<table class="table">
+    <tr>
+        <th>
+            DisplayName
+        </th>
+        <th>
+            Email Address
+        </th>
+        <th>
+            Mobile Phone
+        </th>
+    </tr>
+
+@foreach (var item in Model) {
+    <tr>
+        <td>
+            @Html.DisplayFor(modelItem => item.DisplayName)
+        </td>
+        <td>
+            @Html.Partial("EmailAddresses", item.EmailAddresses)
+        </td>
+        <td>
+            @Html.DisplayFor(modelItem => item.MobilePhone)
+        </td>
+    </tr>
+}
+
+</table>
+```
+
+
+3. Right-click the Views\Shared folder, choose Add then View.... Be sure to select the Create as a partial view option. Add view for email addresses called EmailAddresses that uses the Empty (without model) template. Add the following code to EmailAddresses.cshtml:
+
+C#
+
+```
+@model IEnumerable<Microsoft.Graph.EmailAddress>
+
+@foreach(var item in Model)
+{
+    <p>@Html.DisplayFor(modelItem => item.Address)</p>
+}
+```
+
+4. Add a navigation item for the Contacts view to ./Views/Shared/_Layout.cshtml.
+
+C#
+
+```
+@if (Request.IsAuthenticated)
+{
+    <li>@Html.ActionLink("Inbox", "Inbox", "Home")</li>
+    <li>@Html.ActionLink("Contacts", "Contacts", "Home")</li>
+    <li>@Html.ActionLink("Sign Out", "SignOut", "Home")</li>
+}
+```
+
+5. Add a Contacts function to the HomeController class.
+
+C#
+
+```
+public async Task<ActionResult> Contacts()
+{
+    string token = await GetAccessToken();
+    if (string.IsNullOrEmpty(token))
+    {
+        // If there's no token in the session, redirect to Home
+        return Redirect("/");
+    }
+
+    GraphServiceClient client = new GraphServiceClient(
+        new DelegateAuthenticationProvider(
+            (requestMessage) =>
+            {
+                requestMessage.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+
+                return Task.FromResult(0);
+            }));
+
+    try
+    {
+        var contactResults = await client.Me.Contacts.Request()
+                            .OrderBy("displayName")
+                            .Select("displayName,emailAddresses,mobilePhone")
+                            .Top(10)
+                            .GetAsync();
+
+        return View(contactResults.CurrentPage);
+    }
+    catch (ServiceException ex)
+    {
+        return RedirectToAction("Error", "Home", 
+                    new { message = "ERROR retrieving contacts", debug = ex.Message });
+    }
+}
+```
+
+6. After logging into the app, click the Contacts item in the top navigation menu.

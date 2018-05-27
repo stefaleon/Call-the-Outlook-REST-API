@@ -18,6 +18,41 @@ namespace CallOutlookApi.Controllers
 {
     public class HomeController : Controller
     {
+        public async Task<ActionResult> Contacts()
+        {
+            string token = await GetAccessToken();
+            if (string.IsNullOrEmpty(token))
+            {
+                // If there's no token in the session, redirect to Home
+                return Redirect("/");
+            }
+
+            GraphServiceClient client = new GraphServiceClient(
+                new DelegateAuthenticationProvider(
+                    (requestMessage) =>
+                    {
+                        requestMessage.Headers.Authorization =
+                            new AuthenticationHeaderValue("Bearer", token);
+
+                        return Task.FromResult(0);
+                    }));
+
+            try
+            {
+                var contactResults = await client.Me.Contacts.Request()
+                                    .OrderBy("displayName")
+                                    .Select("displayName,emailAddresses,mobilePhone")
+                                    .Top(10)
+                                    .GetAsync();
+
+                return View(contactResults.CurrentPage);
+            }
+            catch (ServiceException ex)
+            {
+                return RedirectToAction("Error", "Home", new { message = "ERROR retrieving contacts", debug = ex.Message });
+            }
+        }
+
 
         public async Task<ActionResult> Calendar()
         {

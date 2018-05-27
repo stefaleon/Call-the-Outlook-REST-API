@@ -1,0 +1,6 @@
+﻿@model IEnumerable<Microsoft.Graph.EmailAddress>
+
+@foreach (var item in Model)
+{
+    <p>@Html.DisplayFor(modelItem => item.Address)</p>
+}
