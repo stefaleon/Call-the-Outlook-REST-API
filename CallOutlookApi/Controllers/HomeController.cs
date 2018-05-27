@@ -18,6 +18,7 @@ namespace CallOutlookApi.Controllers
 {
     public class HomeController : Controller
     {
+                   
 
         public async Task<ActionResult> Inbox()
         {
@@ -43,22 +44,29 @@ namespace CallOutlookApi.Controllers
             {
                 var mailResults = await client.Me.MailFolders.Inbox.Messages.Request()
                                     .OrderBy("receivedDateTime DESC")
-                                    .Select(m => new { m.Subject, m.ReceivedDateTime, m.From })
+                                    //.Select(m => new { m.Subject, m.ReceivedDateTime, m.From })
+                                    .Select("subject,receivedDateTime,from")
                                     .Top(10)
                                     .GetAsync();
 
-                string content = "";
+        
 
-                foreach (var msg in mailResults.CurrentPage)
-                {
-                    content += string.Format("Subject: {0}<br/>", msg.Subject);
-                }
+        
 
-                return Content(content);
+                //string content = "";
+
+                //foreach (var msg in mailResults.CurrentPage)
+                //        {
+                //            content += string.Format("Subject: {0}<br/>", msg.Subject);
+                //        }
+
+                //return Content(content);
+                return View(mailResults.CurrentPage);
             }
             catch (ServiceException ex)
             {
                 return RedirectToAction("Error", "Home", new { message = "ERROR retrieving messages", debug = ex.Message });
+
             }
         }
 

@@ -794,3 +794,123 @@ To summarize the new code in the Inbox function:
 - It loops over the results and prints out the subject.
 
 If you restart the app now, you should get a very basic listing of email subjects. However, we can use the features of MVC to do better than that.
+
+
+## Displaying the results
+
+MVC can generate views based on a model. So let's start by creating a view based on the Microsoft.Graph.Message object. In Solution Explorer, right-click the ./Views/Home folder and choose Add, then View. Enter Inbox for the View name. Change the Template field to Empty (without model). Leave everything else as default values and click Add.
+
+
+
+Open the Inbox.cshtml file that gets created and replace the entire contents of the file with the following code.
+
+C#
+
+```
+@model IEnumerable<Microsoft.Graph.Message>
+
+@{
+    ViewBag.Title = "Inbox";
+}
+
+<h2>Inbox</h2>
+
+<table class="table">
+    <tr>
+        <th>
+            Subject
+        </th>
+        <th>
+            Received
+        </th>
+        <th>
+            From
+        </th>
+    </tr>
+
+    @foreach (var item in Model)
+    {
+        <tr>
+            <td>
+                @Html.DisplayFor(modelItem => item.Subject)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.ReceivedDateTime)
+            </td>
+            <td>
+                @Html.DisplayFor(modelItem => item.From.EmailAddress.Name)
+                 &lt;@Html.DisplayFor(modelItem => item.From.EmailAddress.Address)&gt;
+            </td>
+        </tr>
+    }
+
+</table>
+```
+
+At this point Visual Studio will indicate a problem with item.ReceivedDateTime. We need to add a reference to System.Runtime in the Web.config file. Open Web.config and find the line:
+
+XML
+
+```
+<compilation debug="true" targetFramework="4.5" />
+```
+
+Replace that line with the following:
+
+XML
+
+```
+<compilation debug="true" targetFramework="4.5">
+  <assemblies>
+    <add assembly="System.Runtime, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
+  </assemblies>
+</compilation>
+```
+
+Just one more thing to do. Let's update the Inbox function to use our new view.
+
+Updated Inbox action in ./Controllers/HomeController.cs
+
+C#
+
+```
+public async Task<ActionResult> Inbox()
+{
+    string token = await GetAccessToken();
+    if (string.IsNullOrEmpty(token))
+    {
+        // If there's no token in the session, redirect to Home
+        return Redirect("/");
+    }
+
+    GraphServiceClient client = new GraphServiceClient(
+        new DelegateAuthenticationProvider(
+            (requestMessage) =>
+            {
+                requestMessage.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+
+                return Task.FromResult(0);
+            }));
+
+    try
+    {
+        var mailResults = await client.Me.MailFolders.Inbox.Messages.Request()
+                            .OrderBy("receivedDateTime DESC")
+                            .Select("subject,receivedDateTime,from")
+                            .Top(10)
+                            .GetAsync();
+
+        return View(mailResults.CurrentPage);
+    }
+    catch (ServiceException ex)
+    {
+        return RedirectToAction("Error", "Home", 
+                new { message = "ERROR retrieving messages", debug = ex.Message });
+    }
+}
+```
+
+The changes here are minimal. Instead of building a string with the results, we instead pass the mailResults.CurrentPage collection to the View method.
+
+Save your changes and run the app. You should now get the new view with the list of messages.
