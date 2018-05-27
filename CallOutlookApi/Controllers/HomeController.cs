@@ -18,7 +18,42 @@ namespace CallOutlookApi.Controllers
 {
     public class HomeController : Controller
     {
-                   
+
+        public async Task<ActionResult> Calendar()
+        {
+            string token = await GetAccessToken();
+            if (string.IsNullOrEmpty(token))
+            {
+                // If there's no token in the session, redirect to Home
+                return Redirect("/");
+            }
+
+            GraphServiceClient client = new GraphServiceClient(
+                new DelegateAuthenticationProvider(
+                    (requestMessage) =>
+                    {
+                        requestMessage.Headers.Authorization =
+                            new AuthenticationHeaderValue("Bearer", token);
+
+                        return Task.FromResult(0);
+                    }));
+
+            try
+            {
+                var eventResults = await client.Me.Events.Request()
+                                    .OrderBy("start/dateTime DESC")
+                                    .Select("subject,start,end")
+                                    .Top(10)
+                                    .GetAsync();
+
+                return View(eventResults.CurrentPage);
+            }
+            catch (ServiceException ex)
+            {
+                return RedirectToAction("Error", "Home", new { message = "ERROR retrieving events", debug = ex.Message });
+            }
+        }
+
 
         public async Task<ActionResult> Inbox()
         {

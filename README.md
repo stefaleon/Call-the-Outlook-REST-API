@@ -914,3 +914,124 @@ public async Task<ActionResult> Inbox()
 The changes here are minimal. Instead of building a string with the results, we instead pass the mailResults.CurrentPage collection to the View method.
 
 Save your changes and run the app. You should now get the new view with the list of messages.
+
+
+## Adding Calendar and Contacts APIs
+
+Now that you've mastered calling the Outlook Mail API, doing the same for Calendar and Contacts APIs is similar and easy.
+
+Tip
+
+If you've followed along with the tutorial, you probably have an access token saved in your session. That token will only be valid for the Mail.Read scope. In order to call the Calendar or Contacts API, we will need to add new scopes. Be sure sign out of the app to get rid of the saved tokens so that you can start the login process from the beginning to get a new access token.
+
+
+## For Calendar API:
+
+1. Update the ida:AppScopes value in AzureOauth.config to include the Calendars.Read scope.
+
+XML 
+
+```
+<add key="ida:AppScopes" value="User.Read Mail.Read Calendars.Read" />
+```
+
+2. Add a view for events called Calendar that uses the Empty (without model) template. Add the following code to Calendar.cshtml:
+
+C#
+
+```
+@model IEnumerable<Microsoft.Graph.Event>
+
+@{
+    ViewBag.Title = "Calendar";
+}
+
+<h2>Calendar</h2>
+
+<table class="table">
+    <tr>
+        <th>
+            Subject
+        </th>
+        <th>
+            Start
+        </th>
+        <th>
+            End
+        </th>
+    </tr>
+
+@foreach (var item in Model) {
+    <tr>
+        <td>
+            @Html.DisplayFor(modelItem => item.Subject)
+        </td>
+        <td>
+            @Html.DisplayFor(modelItem => item.Start.DateTime)
+                            (@Html.DisplayFor(modelItem => item.Start.TimeZone))
+        </td>
+        <td>
+            @Html.DisplayFor(modelItem => item.End.DateTime) 
+                            (@Html.DisplayFor(modelItem => item.End.TimeZone))
+        </td>
+    </tr>
+}
+
+</table>
+```
+
+3. Add a navigation item for the Calendar view to ./Views/Shared/_Layout.cshtml.
+
+C#
+
+```
+@if (Request.IsAuthenticated)
+{
+    <li>@Html.ActionLink("Inbox", "Inbox", "Home")</li>
+    <li>@Html.ActionLink("Calendar", "Calendar", "Home")</li>
+    <li>@Html.ActionLink("Sign Out", "SignOut", "Home")</li>
+}
+```
+
+4. Add a Calendar function to the HomeController class.
+
+C#
+
+```
+public async Task<ActionResult> Calendar()
+{
+    string token = await GetAccessToken();
+    if (string.IsNullOrEmpty(token))
+    {
+        // If there's no token in the session, redirect to Home
+        return Redirect("/");
+    }
+
+    GraphServiceClient client = new GraphServiceClient(
+        new DelegateAuthenticationProvider(
+            (requestMessage) =>
+            {
+                requestMessage.Headers.Authorization =
+                    new AuthenticationHeaderValue("Bearer", token);
+
+                return Task.FromResult(0);
+            }));
+
+    try
+    {
+        var eventResults = await client.Me.Events.Request()
+                            .OrderBy("start/dateTime DESC")
+                            .Select("subject,start,end")
+                            .Top(10)
+                            .GetAsync();
+
+        return View(eventResults.CurrentPage);
+    }
+    catch (ServiceException ex)
+    {
+        return RedirectToAction("Error", "Home", new { message = "ERROR retrieving events", debug = ex.Message });
+    }
+}
+```
+
+After logging into the app, click the Calendar item in the top navigation menu.
